@@ -337,58 +337,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
           await interaction.editReply(`Update failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
       }
+    }
 });
-
-
-/* } else if (subcommand === 'update') {
-  await interaction.deferReply({ ephemeral: true });
-  
-  try {
-    const channel = client.channels.cache.get(process.env.CID!) as TextChannel;
-    if (!channel) {
-      return interaction.editReply('Channel not found!');
-    }
-
-    let addedCount = 0;
-    let processedMessages = 0;
-    let lastMessageId: string | undefined;
-
-    // Fetch messages in batches
-    while (true) {
-      const messages = await channel.messages.fetch({
-        limit: 100,
-        before: lastMessageId
-      });
-
-      if (messages.size === 0) break;
-
-      for (const [_, message] of messages) {
-        processedMessages++;
-        const attachments = message.attachments.filter(a => a.contentType?.startsWith('video/'));
-        
-        for (const [_, attachment] of attachments) {
-          if (!(await videoExists(attachment.url))) {
-            await insertVideoWithLabels(
-              attachment.url,
-              message.createdAt.toISOString()
-            );
-            addedCount++;
-          }
-        }
-      }
-
-      lastMessageId = messages.last()?.id;
-    }
-
-    await interaction.editReply(
-      `Scanned ${processedMessages} messages.\nAdded ${addedCount} new videos to database.`
-    );
-  } catch (error) {
-    console.error('Update failed:', error);
-    await interaction.editReply(`Update failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-  }
-} */
-
 
 console.log("before login");
 // Log in to Discord with your app's token
