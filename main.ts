@@ -207,7 +207,7 @@ client.once(Events.ClientReady, async (readyClient) => {
       .addSubcommand((subcommand) =>
         subcommand
           .setName('update')
-          .setDescription('Restarts the database :nerd:')
+          .setDescription('Restarts the database 🤓')
       ),
   ].map((command) => command.toJSON());
 
