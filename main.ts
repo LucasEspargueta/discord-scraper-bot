@@ -178,7 +178,7 @@ client.once(Events.ClientReady, async (readyClient) => {
       )
       .addSubcommand((subcommand) =>
         subcommand
-          .setName('word')
+          .setName('search')
           .setDescription('Get a video incident by label')
           .addStringOption((option) =>
             option
@@ -271,7 +271,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       } else {
         await interaction.reply('No videos found.');
       }
-    } else if (subcommand === 'word') {
+    } else if (subcommand === 'search') {
       const label = options.getString('label', true);
       const videos = await getVideosByLabel(label);
       if (videos.length > 0) {
@@ -290,18 +290,53 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await interaction.reply(`Error: ${error instanceof Error ? error.message : 'Failed to add label'}`);
       }
     } else if (subcommand === 'update') {
-      const incidentsChannel = client.channels.cache.get(process.env.CID!)! as TextChannel;
-      const messagesWithVideos = await getMessagesWithVideos(incidentsChannel);
-
-      messagesWithVideos.forEach(message => {
-        const dateString = message.createdAt.toISOString();
-        const videoURLs = extractVideoURLs(message);
-        videoURLs.forEach(async videoURL => {
-          await insertVideoWithLabels(videoURL, dateString);
-        });
-      });
-    }
-  }
+        await interaction.deferReply({ ephemeral: true });
+        
+        try {
+          const channel = client.channels.cache.get(process.env.CID!) as TextChannel;
+          if (!channel) {
+            return interaction.editReply('Channel not found!');
+          }
+      
+          let addedCount = 0;
+          let processedMessages = 0;
+          let lastMessageId: string | undefined;
+      
+          // Fetch messages in batches
+          while (true) {
+            const messages = await channel.messages.fetch({
+              limit: 100,
+              before: lastMessageId
+            });
+      
+            if (messages.size === 0) break;
+      
+            for (const [_, message] of messages) {
+              processedMessages++;
+              const attachments = message.attachments.filter(a => a.contentType?.startsWith('video/'));
+              
+              for (const [_, attachment] of attachments) {
+                if (!(await videoExists(attachment.url))) {
+                  await insertVideoWithLabels(
+                    attachment.url,
+                    message.createdAt.toISOString()
+                  );
+                  addedCount++;
+                }
+              }
+            }
+      
+            lastMessageId = messages.last()?.id;
+          }
+      
+          await interaction.editReply(
+            `Scanned ${processedMessages} messages.\nAdded ${addedCount} new videos to database.`
+          );
+        } catch (error) {
+          console.error('Update failed:', error);
+          await interaction.editReply(`Update failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+      }
 });
 
 
