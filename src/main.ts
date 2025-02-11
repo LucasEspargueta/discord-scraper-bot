@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, TextChannel, Events, SlashCommandBuilder, Routes, CommandInteractionOptionResolver } from 'discord.js';
+import { Client, GatewayIntentBits, TextChannel, Events, SlashCommandBuilder, Routes, CommandInteractionOptionResolver, EmbedBuilder } from 'discord.js';
 import dotenv from 'dotenv';
 import { Database, Statement } from 'sqlite3';
 import { open } from 'sqlite';
@@ -121,13 +121,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await interaction.reply('No videos found.');
       }
     } else if (subcommand === 'search') {
+
       const label = options.getString('label', true);
       const videos: VideoInfo[] = await getVideosByLabel(dbPromise, label);
+
+      const embed = new EmbedBuilder().setAuthor({ name: `Videos labeled "${label}"` })
       
-
-
       if (videos.length > 0) {
-        await interaction.reply(`Videos with label "${label}":\n${videos.map((videoInfo, id) => `video ${id}: ${videoInfo.videoUrl}, messageLink: ${videoInfo.messageUrl}`).join('\n')}`);
+
+        videos.forEach((videoInfo, id) => {
+          embed.addFields( { name: `**${videoInfo.videoUrl.split('/').at(-1)?.split('?').at(0)}**`, value: `[*here!*](${videoInfo.messageUrl})` } )
+        });
+
+        await interaction.reply({ embeds: [embed] });
+
       } else {
         await interaction.reply(`No videos found with label "${label}".`);
       }
