@@ -29,6 +29,7 @@ export default class VideoDB {
       CREATE TABLE IF NOT EXISTS videos (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           videoUrl TEXT NOT NULL,
+          videoIdentifier TEXT NOT NULL,
           uploadDate TEXT NOT NULL,
           messageUrl TEXT NOT NULL
         );
@@ -52,13 +53,13 @@ export default class VideoDB {
    * @param videoInfo 
    * @param labels 
    */
-  public async insertVideoWithLabels(videoInfo: VideoInfo, labels: string[] = []) {
+  public async insertVideoWithLabels(videoInfo: VideoInfo, labels: string[] = []): Promise<void> {
     const db = await this.dbPromise;
 
     // Insert the video
     const videoResult = await db.run(
-      'INSERT INTO videos (videoUrl, uploadDate, messageUrl) VALUES (?, ?, ?)',
-      [videoInfo.videoUrl, videoInfo.uploadDate, videoInfo.messageUrl]
+      'INSERT INTO videos (videoUrl, uploadDate, messageUrl, videoIdentifier) VALUES (?, ?, ?, ?)',
+      [videoInfo.videoUrl, videoInfo.uploadDate, videoInfo.messageUrl, videoInfo.getUniqueVideoIdentifier()]
     );
 
     const videoId = videoResult.lastID;
@@ -79,21 +80,21 @@ export default class VideoDB {
   }
 
   // Add this new function to check for existing videos
-  public async videoExists(videoUrl: string): Promise<boolean> {
+  public async videoExists(videoIdentifier: string): Promise<boolean> {
     const db = await this.dbPromise;
     const result = await db.get(
-      'SELECT 1 FROM videos WHERE videoUrl = ?',
-      [videoUrl]
+      'SELECT 1 FROM videos WHERE videoIdentifier = ?',
+      [videoIdentifier]
     );
     return !!result;
   }
 
   // Function to update a video's label
-  public async addLabelsToVideo(videoUrl: string, labels: string[]) {
+  public async addLabelsToVideo(videoIdentifier: string, labels: string[]) {
     const db = await this.dbPromise;
 
     // Find the video by URL
-    const video = await db.get('SELECT id FROM videos WHERE videoUrl = ?', [videoUrl]);
+    const video = await db.get('SELECT id FROM videos WHERE videoIdentifier = ?', [videoIdentifier]);
     if (!video) throw new Error('Video not found');
 
     const videoId = video.id;
@@ -120,11 +121,11 @@ export default class VideoDB {
       'SELECT videoUrl, uploadDate, messageUrl FROM videos ORDER BY RANDOM() LIMIT 1'
     );
 
-    if (video) return {
-      videoUrl: video.videoUrl,
-      messageUrl: video.messageUrl,
-      uploadDate: video.uploadDate
-    };
+    if (video) return new VideoInfo(
+      video.messageUrl,
+      video.videoUrl,
+      new Date(video.uploadDate)
+    );
 
     return null;
   }
@@ -141,7 +142,56 @@ export default class VideoDB {
          WHERE l.label = ?`,
       [label]
     );
-    return videos.map((video) => ({ videoUrl: video.videoUrl, messageUrl: video.messageUrl, uploadDate: new Date(video.uploadDate) }));
+    return videos.map(video => new VideoInfo(video.messageUrl, video.videoUrl, new Date(video.uploadDate)));
+  }
+
+  public async getVideosByMessageUrl(messageUrl: string): Promise<VideoInfo[]> {
+    const db = await this.dbPromise;
+
+    const videos = await db.all(
+      `SELECT videoUrl, uploadDate, messageUrl
+         FROM videos
+         WHERE messageUrl = ?`,
+      [messageUrl]
+    );
+
+    return videos.map(video => new VideoInfo(video.messageUrl, video.videoUrl, new Date(video.uploadDate)));
+  }
+
+  public async getVideoByVideoUrl(videoUrl: string): Promise<VideoInfo> {
+    const db = await this.dbPromise;
+
+    const video = await db.get(
+      `SELECT videoUrl, uploadDate, messageUrl
+         FROM videos
+         WHERE videoUrl = ?`,
+      [videoUrl]
+    );
+
+    return new VideoInfo(video.messageUrl, video.videoUrl, new Date(video.uploadDate));
+  }
+
+  public async getVideoByVideoIdentifier(videoIdentifier: string): Promise<VideoInfo> {
+    const db = await this.dbPromise;
+
+    const video = await db.get(
+      `SELECT videoUrl, uploadDate, messageUrl
+         FROM videos
+         WHERE videoIdentifier = ?`,
+      [videoIdentifier]
+    );
+
+    return new VideoInfo(video.messageUrl, video.videoUrl, new Date(video.uploadDate));
+  }
+
+  public async setVideoUrl(videoUrl: string): Promise<void> {
+    const db = await this.dbPromise;
+
+    const query = await db.prepare(`UPDATE videos
+      SET videoUrl = ?
+      WHERE videoIdentifier = ?`);
+
+    await query.run([videoUrl, VideoInfo.getUniqueVideoIdentifier(videoUrl)]);
   }
 
   public async getLabelsForVideo(videoUrl: string): Promise<string[]> {

@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, TextChannel, Events, SlashCommandBuilder, Routes, CommandInteractionOptionResolver, EmbedBuilder } from 'discord.js';
+import { Client, GatewayIntentBits, TextChannel, Events, SlashCommandBuilder, Routes, CommandInteractionOptionResolver, EmbedBuilder, MessageFlags } from 'discord.js';
 import dotenv from 'dotenv';
 import { REST } from '@discordjs/rest';
 import { VideoInfo } from './datatypes/videoInfo';
@@ -90,7 +90,7 @@ client.on('messageCreate', async (message) => {
     const attachment = message.attachments.first();
 
     if (attachment?.contentType?.startsWith('video/')) {
-      await videoDB.insertVideoWithLabels({ videoUrl: attachment.url, uploadDate: message.createdAt, messageUrl: message.url });
+      await videoDB.insertVideoWithLabels(new VideoInfo(message.url, attachment.url, message.createdAt));
 
       console.log(`Video uploaded: ${attachment.url}`);
     }
@@ -119,11 +119,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const videos: VideoInfo[] = await videoDB.getVideosByLabel(label);
 
       const embed = new EmbedBuilder().setAuthor({ name: `Videos labeled "${label}"` })
-      
+
       if (videos.length > 0) {
 
         videos.forEach((videoInfo, id) => {
-          embed.addFields( { name: `**${videoInfo.videoUrl.split('/').at(-1)?.split('?').at(0)}**`, value: `[*here!*](${videoInfo.messageUrl})` } )
+          embed.addFields({ name: `**${videoInfo.videoUrl.split('/').at(-1)?.split('?').at(0)}**`, value: `[*here!*](${videoInfo.messageUrl})` })
         });
 
         await interaction.reply({ embeds: [embed] });
@@ -133,17 +133,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
     } else if (subcommand === 'label') {
-      const link = options.getString('link', true);
+      const url = options.getString('link', true);
       const label = options.getString('label', true);
       try {
-        await videoDB.addLabelsToVideo(link, [label]);
-        await interaction.reply(`Label "${label}" added to video: ${link}`);
+        await videoDB.addLabelsToVideo(VideoInfo.getUniqueVideoIdentifier(url), [label]);
+        await interaction.reply(`Label "${label}" added to video: ${url}`);
       } catch (error) {
         console.error(error);
         await interaction.reply(`Error: ${error instanceof Error ? error.message : 'Failed to add label'}`);
       }
     } else if (subcommand === 'update') {
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
       try {
         const channel = client.channels.cache.get(process.env.CID!) as TextChannel;
@@ -152,6 +152,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
 
         let addedCount = 0;
+        let updatedURLCount = 0;
         let processedMessages = 0;
         let lastMessageId: string | undefined;
 
@@ -168,14 +169,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
             const attachments = message.attachments.filter(a => a.contentType?.startsWith('video/'));
 
             for (const [_, attachment] of attachments) {
-              if (!(await videoDB.videoExists(attachment.url))) {
-                await videoDB.insertVideoWithLabels({
-                  videoUrl: attachment.url,
-                  uploadDate: message.createdAt,
-                  messageUrl: message.url
-                }
-                );
+              const videoIdentifier: string = VideoInfo.getUniqueVideoIdentifier(attachment.url);
+
+              if (!(await videoDB.videoExists(videoIdentifier))) {
+                await videoDB.insertVideoWithLabels(new VideoInfo(message.url, attachment.url, message.createdAt));
                 addedCount++;
+              } else {
+                const video: VideoInfo = await videoDB.getVideoByVideoIdentifier(videoIdentifier);
+                if (video.getUniqueVideoIdentifier() !== videoIdentifier) await videoDB.setVideoUrl(attachment.url);
+                updatedURLCount++;
               }
             }
           }
@@ -184,7 +186,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
 
         await interaction.editReply(
-          `Scanned ${processedMessages} messages.\nAdded ${addedCount} new videos to database.`
+          `Scanned ${processedMessages} messages.\nAdded ${addedCount} new videos to database and updated ${updatedURLCount} URLs.`
         );
       } catch (error) {
         console.error('Update failed:', error);
