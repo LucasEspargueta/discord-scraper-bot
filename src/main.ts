@@ -1,12 +1,9 @@
 import { Client, GatewayIntentBits, TextChannel, Events, SlashCommandBuilder, Routes, CommandInteractionOptionResolver, EmbedBuilder } from 'discord.js';
 import dotenv from 'dotenv';
-import { Database, Statement } from 'sqlite3';
-import { open } from 'sqlite';
-import * as sqlite from 'sqlite';
 import { REST } from '@discordjs/rest';
-import { getRandomVideo, getLabelsForVideo, getVideosByLabel, insertVideoWithLabels, videoExists, addLabelsToVideo } from './api/videoDatabaseInteraction';
 import { VideoInfo } from './datatypes/videoInfo';
-import { initializeDatabase } from './database/database'
+import './database/database';
+import VideoDB from './database/database';
 
 dotenv.config();
 
@@ -22,17 +19,13 @@ const client = new Client({
     GatewayIntentBits.MessageContent],
 });
 
-
-// Database setup
-const dbPromise: Promise<sqlite.Database<Database, Statement>> = open({
-  filename: './database.db',
-  driver: Database,
-});
+// instantiated when the bot boots up
+let videoDB: VideoDB;
 
 // Event listener for when the bot is ready
 client.once(Events.ClientReady, async (readyClient) => {
   console.log(`Logged in as ${readyClient.user?.tag}!`);
-  await initializeDatabase(dbPromise);
+  videoDB = await VideoDB.create();
 
   // Register slash commands
   const rest = new REST({ version: '10' }).setToken(process.env.token!);
@@ -97,7 +90,7 @@ client.on('messageCreate', async (message) => {
     const attachment = message.attachments.first();
 
     if (attachment?.contentType?.startsWith('video/')) {
-      await insertVideoWithLabels(dbPromise, { videoUrl: attachment.url, uploadDate: message.createdAt, messageUrl: message.url });
+      await videoDB.insertVideoWithLabels({ videoUrl: attachment.url, uploadDate: message.createdAt, messageUrl: message.url });
 
       console.log(`Video uploaded: ${attachment.url}`);
     }
@@ -114,7 +107,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     const subcommand = options.getSubcommand();
 
     if (subcommand === 'random') {
-      const videoInfo: VideoInfo | null = await getRandomVideo(dbPromise);
+      const videoInfo: VideoInfo | null = await videoDB.getRandomVideo();
       if (videoInfo) {
         await interaction.reply(`Random video: ${videoInfo.videoUrl}, messageLink: ${videoInfo.messageUrl}`);
       } else {
@@ -123,7 +116,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     } else if (subcommand === 'search') {
 
       const label = options.getString('label', true);
-      const videos: VideoInfo[] = await getVideosByLabel(dbPromise, label);
+      const videos: VideoInfo[] = await videoDB.getVideosByLabel(label);
 
       const embed = new EmbedBuilder().setAuthor({ name: `Videos labeled "${label}"` })
       
@@ -143,7 +136,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const link = options.getString('link', true);
       const label = options.getString('label', true);
       try {
-        await addLabelsToVideo(dbPromise, link, [label]);
+        await videoDB.addLabelsToVideo(link, [label]);
         await interaction.reply(`Label "${label}" added to video: ${link}`);
       } catch (error) {
         console.error(error);
@@ -175,9 +168,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
             const attachments = message.attachments.filter(a => a.contentType?.startsWith('video/'));
 
             for (const [_, attachment] of attachments) {
-              if (!(await videoExists(dbPromise, attachment.url))) {
-                await insertVideoWithLabels(
-                  dbPromise, {
+              if (!(await videoDB.videoExists(attachment.url))) {
+                await videoDB.insertVideoWithLabels({
                   videoUrl: attachment.url,
                   uploadDate: message.createdAt,
                   messageUrl: message.url
